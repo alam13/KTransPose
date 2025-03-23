@@ -1,7 +1,7 @@
 # KTransPose
 
 # To train the model by your self, you need to first generated the dataset:
-python convert_data_to_disk.py --cv=0 --input_list=data/pdb_list_ --output_file=pdbbind_rmsd_srand_coor2 --thread_num=1 --use_new_data --bond_th=6 --pocket_th=12 --groundtruth_dir=data/pdbbind/ --pdbbind_dir=data/medusadock_output --label_list_file=KTransPose_tmp --dataset=coor2 --pdb_version=2016
+python convert_data_to_disk.py --cv=0 --input_list=data/pdb_list_ --output_file=pdbbind_rmsd_srand_coor2 --thread_num=1 --use_new_data --bond_th=6 --pocket_th=12 --groundtruth_dir=data/pdbbind/ --pdbbind_dir=data/medusadock_output --label_list_file=KtransPose_tmp --dataset=coor2 --pdb_version=2016
 
 mkdir KtransPose_tmp/pdbbind_rmsd_srand_coor2/raw
 
