@@ -9,7 +9,7 @@ mv KtransPose_tmp/pdbbind_rmsd_srand_coor2/test/ KtransPose_tmp/pdbbind_rmsd_sra
 
 mv KtransPose_tmp/pdbbind_rmsd_srand_coor2/train/ KtransPose_tmp/pdbbind_rmsd_srand_coor2/raw/
 
-# Then train the pose prediction model with:
-python train_coor.py --gpu_id=0 --n_graph_layer=4 --d_graph_layer=256 --start_epoch=1 --epoch=100 --flexible --model_dir=KtransPose_tmp/models_4_256_atom_hinge0 --data_path=KtransPose_tmp/pdbbind_rmsd_srand_coor2 --heads=1 --batch_size=1 --model_type=Net_coor --residue --edge_dim=3 --loss_reduction=mean --output=KtransPose_tmp/output_4_256_atom_hinge0 --hinge=0 --tot_seed=1
+# Then train the protein-ligand pose prediction model with:
+python train_coor.py --gpu_id=0 --n_graph_layer=4 --d_graph_layer=256 --start_epoch=1 --epoch=350 --flexible --model_dir=KtransPose_tmp/models_4_256_atom_hinge0 --data_path=KtransPose_tmp/pdbbind_rmsd_srand_coor2 --heads=1 --batch_size=1 --model_type=Net_coor --residue --edge_dim=3 --loss_reduction=mean --output=KtransPose_tmp/output_4_256_atom_hinge0 --hinge=0 --tot_seed=1
 
 
