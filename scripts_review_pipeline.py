@@ -48,4 +48,3 @@ if __name__=='__main__':
     plot_curve(rows, out/'fig_rmsd_curve.png')
     with open(out/'summary.json','w') as f: json.dump(summary(rows),f,indent=2)
     print(f'Saved artifacts to {out}')
-
