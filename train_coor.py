@@ -83,9 +83,9 @@ def parse_args() -> argparse.Namespace:
                    help="ordered prior-stage checkpoints, each applied once before training")
     p.add_argument("--edge_threshold", type=float, default=6.0)
 
-    p.add_argument("--tih_lambda_gpa", type=float, default=0.5)
-    p.add_argument("--tih_lambda_coord", type=float, default=1.0)
-    p.add_argument("--tih_lambda_laa", type=float, default=0.0)
+    p.add_argument("--tih_lambda_gpa", type=float, default=0.25)
+    p.add_argument("--tih_lambda_coord", type=float, default=0.25)
+    p.add_argument("--tih_lambda_laa", type=float, default=0.25)
 
     p.add_argument("--selection_metric", choices=["val_loss", "avg_raw_rmsd_per_complex_ang", "avg_tih_per_complex"], default="val_loss")
     p.add_argument("--pre_model", default="None")
