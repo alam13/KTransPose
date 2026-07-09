@@ -8,7 +8,7 @@ Protocol implemented here
    - Kabsch-aligned test RMSD is computed later by ``test3.py``.
 
 2. Proposed method:
-   - train with differentiable TIH = GPA + LAA;
+   - train with differentiable TIH = GPA + coordinate MSE + optional LAA;
    - GPA uses differentiable PyTorch Kabsch;
    - Iter1 uses the original poses;
    - Iter2 inputs are updated once by frozen Iter1;
@@ -37,7 +37,7 @@ from tqdm import tqdm
 from dataset import PDBBindCoor
 from iterative_refinement import build_pose_edges
 from model import Net_coor, Net_coor_cent, Net_coor_res, loss_fn_cos
-from tih_loss import TIHLoss, gpa_rmsd, laa_loss, laa_rmse, raw_rmsd
+from tih_loss import TIHLoss, coordinate_mse_loss, gpa_rmsd, laa_loss, laa_rmse, raw_rmsd
 
 SPACE = 100.0
 
@@ -84,7 +84,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--edge_threshold", type=float, default=6.0)
 
     p.add_argument("--tih_lambda_gpa", type=float, default=0.5)
-    p.add_argument("--tih_lambda_laa", type=float, default=0.5)
+    p.add_argument("--tih_lambda_coord", type=float, default=1.0)
+    p.add_argument("--tih_lambda_laa", type=float, default=0.0)
 
     p.add_argument("--selection_metric", choices=["val_loss", "avg_raw_rmsd_per_complex_ang", "avg_tih_per_complex"], default="val_loss")
     p.add_argument("--pre_model", default="None")
@@ -95,7 +96,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--save_predictions_npz", action="store_true")
     return p.parse_args()
-
 
 args = parse_args()
 expected_updates = args.iterative - 1
@@ -262,7 +262,7 @@ if args.pre_model != "None":
     model.load_state_dict(load_state(args.pre_model, device))
 
 if args.loss == "TIH":
-    criterion = TIHLoss(args.tih_lambda_gpa, args.tih_lambda_laa)
+    criterion = TIHLoss(args.tih_lambda_gpa, args.tih_lambda_coord, args.tih_lambda_laa)
 elif args.loss == "MSELoss":
     criterion = torch.nn.MSELoss(reduction=args.loss_reduction)
 elif args.loss == "L1Loss":
@@ -288,8 +288,6 @@ def refine_dataset_once(dataset: list, checkpoint: str, label: str) -> list:
     for data in tqdm(loader, desc=label):
         data = data.to(device)
         pred = model_predict(model, data)
-        refined.append(update_pose_graph(data, pred).cpu())
-    return refined
 
 
 train_dataset = materialize(base_train_dataset)
@@ -311,6 +309,8 @@ val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
 print(f"train={len(train_dataset)} validation={len(val_dataset)}", flush=True)
 
 artifact_dir = Path(args.artifact_dir)
+artifact_dir.mkdir(parents=True, exist_ok=True)
+checkpoint_file = best_model_path(args.model_dir)
 artifact_dir.mkdir(parents=True, exist_ok=True)
 checkpoint_file = best_model_path(args.model_dir)
 manifest_file = artifact_dir / "run_manifest.json"
@@ -336,8 +336,12 @@ write_json(
             "coordinate_scale_angstrom": SPACE,
         },
         "tih_definition": None if args.loss != "TIH" else {
-            "formula": "lambda_gpa * Kabsch_RMSD + lambda_laa * pairwise_distance_MSE",
+            "formula": (
+                "lambda_gpa * Kabsch_RMSD + lambda_coord * coordinate_MSE "
+                "+ lambda_laa * pairwise_distance_MSE"
+            ),
             "lambda_gpa": args.tih_lambda_gpa,
+            "lambda_coord": args.tih_lambda_coord,
             "lambda_laa": args.tih_lambda_laa,
             "kabsch_implementation": "differentiable PyTorch SVD",
         },
@@ -364,7 +368,6 @@ def append_csv(path: Path, row: dict) -> None:
             writer.writeheader()
         writer.writerow(row)
 
-
 def train_epoch(epoch: int) -> float:
     model.train()
     total = 0.0
@@ -386,7 +389,6 @@ def train_epoch(epoch: int) -> float:
     return total / max(count, 1)
 
 
-@torch.no_grad()
 def validate(epoch: int):
     """Validate without Kabsch for MSE baseline; with TIH diagnostics for TIH."""
     model.eval()
@@ -412,6 +414,7 @@ def validate(epoch: int):
         if args.loss == "TIH":
             row.update({
                 "gpa_rmsd_ang": float(gpa_rmsd(pred_abs, true_abs).cpu()) * SPACE,
+                "coord_mse": float(coordinate_mse_loss(pred_abs, true_abs).cpu()),
                 "laa": float(laa_loss(pred_abs, true_abs).cpu()),
                 "laa_rmse_ang": float(laa_rmse(pred_abs, true_abs).cpu()) * SPACE,
                 "tih": float(criterion(pred_abs, true_abs).cpu()),
@@ -436,6 +439,7 @@ def validate(epoch: int):
         if args.loss == "TIH":
             item.update({
                 "avg_gpa_rmsd_ang": float(np.mean([r["gpa_rmsd_ang"] for r in group_rows])),
+                "avg_coord_mse": float(np.mean([r["coord_mse"] for r in group_rows])),
                 "avg_laa": float(np.mean([r["laa"] for r in group_rows])),
                 "avg_tih": float(np.mean([r["tih"] for r in group_rows])),
             })
@@ -451,6 +455,7 @@ def validate(epoch: int):
     if args.loss == "TIH":
         metrics.update({
             "avg_gpa_rmsd_per_complex_ang": float(np.mean([r["avg_gpa_rmsd_ang"] for r in per_complex])),
+            "avg_coord_mse_per_complex": float(np.mean([r["avg_coord_mse"] for r in per_complex])),
             "avg_laa_per_complex": float(np.mean([r["avg_laa"] for r in per_complex])),
             "avg_tih_per_complex": float(np.mean([r["avg_tih"] for r in per_complex])),
         })
@@ -490,7 +495,9 @@ for epoch in range(args.start_epoch, args.start_epoch + args.epoch):
     if args.loss == "TIH":
         message += (
             f"GPA/Kabsch RMSD: {metrics['avg_gpa_rmsd_per_complex_ang']:.6f} "
-            f"LAA: {metrics['avg_laa_per_complex']:.8f} TIH: {metrics['avg_tih_per_complex']:.8f} "
+            f"Coord MSE: {metrics['avg_coord_mse_per_complex']:.8f} "
+            f"LAA: {metrics['avg_laa_per_complex']:.8f} "
+            f"TIH: {metrics['avg_tih_per_complex']:.8f} "
         )
     message += f"Selected {args.selection_metric}: {selected:.8f}"
     print(message, flush=True)
@@ -516,6 +523,7 @@ for epoch in range(args.start_epoch, args.start_epoch + args.epoch):
                 "previous_best_selected_value": previous,
                 "training_objective": args.loss,
                 **metrics,
+
             },
         )
         print(f"Saved best model at epoch {epoch}: {selected:.8f}", flush=True)
