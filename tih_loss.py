@@ -140,33 +140,33 @@ class TIHLoss(nn.Module):
             + self.lambda_laa * laa_value
         )
 
-    # def components(self, pred: torch.Tensor, target: torch.Tensor) -> dict[str, torch.Tensor]:
-    #     raw_value = raw_rmsd(pred, target)
-    #     gpa_value = gpa_rmsd(pred, target)
-    #     laa_value = laa_loss(pred, target)
-    #     return {
-    #         "raw_rmsd": raw_value,
-    #         "gpa_rmsd": gpa_value,
-    #         "laa": laa_value,
-    #         "laa_rmse": torch.sqrt(laa_value + EPS),
-    #         "tih": self.lambda_gpa * gpa_value + self.lambda_laa * laa_value,
-    #     }
-    def components(self, pred: torch.Tensor, target: torch.Tensor) -> dict[str, torch.Tensor]:
-        raw_value = raw_rmsd(pred, target)
-        gpa_value = gpa_rmsd(pred, target)
+     def components(self, pred: torch.Tensor, target: torch.Tensor) -> dict[str, torch.Tensor]:
+         raw_value = raw_rmsd(pred, target)
+         gpa_value = gpa_rmsd(pred, target)
+         laa_value = laa_loss(pred, target)
+         return {
+             "raw_rmsd": raw_value,
+             "gpa_rmsd": gpa_value,
+             "laa": laa_value,
+             "laa_rmse": torch.sqrt(laa_value + EPS),
+             "tih": self.lambda_gpa * gpa_value + self.lambda_laa * laa_value,
+         }
+    #def components(self, pred: torch.Tensor, target: torch.Tensor) -> dict[str, torch.Tensor]:
+    #    raw_value = raw_rmsd(pred, target)
+    #    gpa_value = gpa_rmsd(pred, target)
 
-        laa_mse_value = laa_loss(pred, target)
-        laa_rmse_value = torch.sqrt(laa_mse_value + EPS)
+    #    laa_mse_value = laa_loss(pred, target)
+    #    laa_rmse_value = torch.sqrt(laa_mse_value + EPS)
 
-        tih_value = (
-            self.lambda_gpa * gpa_value
-            + self.lambda_laa * laa_rmse_value
-        )
+    #    tih_value = (
+    #        self.lambda_gpa * gpa_value
+    #        + self.lambda_laa * laa_rmse_value
+    #    )
 
-        return {
-            "raw_rmsd": raw_value,
-            "gpa_rmsd": gpa_value,
-            "laa": laa_mse_value, 
-            "laa_rmse": laa_rmse_value,
-            "tih": tih_value,
-        }
+    #    return {
+    #        "raw_rmsd": raw_value,
+    #        "gpa_rmsd": gpa_value,
+    #        "laa": laa_mse_value, 
+    #        "laa_rmse": laa_rmse_value,
+    #        "tih": tih_value,
+    #    }
