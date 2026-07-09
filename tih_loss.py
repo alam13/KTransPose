@@ -1,13 +1,16 @@
 """Differentiable TIH loss and Kabsch utilities for KTransPose.
 
-The proposed TIH objective follows the original formulation:
+The TIH objective used for docking-frame supervision combines:
 
-    L_TIH = lambda_GPA * L_GPA + lambda_LAA * L_LAA
+    L_TIH = lambda_GPA * L_GPA + lambda_coord * L_coord
+            + lambda_LAA * L_LAA
 
 where
     L_GPA = Kabsch-aligned RMSD between predicted and target absolute poses,
-    L_LAA = mean squared error between their intraligand pairwise-distance
-            matrices.
+    L_coord = point-wise coordinate MSE between corresponding predicted and
+              target atoms,
+    L_LAA = optional mean squared error between intraligand pairwise-distance
+            matrices for internal geometry regularization.
 
 Everything is implemented in PyTorch. No NumPy conversion or tensor detach is
 used inside the loss, so both terms contribute gradients during training.
@@ -119,54 +122,59 @@ def laa_rmse(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return torch.sqrt(laa_loss(pred, target) + EPS)
 
 
-class TIHLoss(nn.Module):
-    """Differentiable GPA + LAA objective."""
+def coordinate_mse_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    """Point-wise coordinate MSE for absolute pose preservation."""
+    _validate_pose(pred, target)
+    return torch.mean((pred.float() - target.float()) ** 2)
 
-    def __init__(self, lambda_gpa: float = 0.5, lambda_laa: float = 0.5):
+
+class TIHLoss(nn.Module):
+    """Differentiable GPA + coordinate MSE with optional LAA regularization."""
+
+    def __init__(
+        self,
+        lambda_gpa: float = 0.25,
+        lambda_coord: float = 0.5,
+        lambda_laa: float = 0.25,
+    ):
         super().__init__()
-        if lambda_gpa < 0 or lambda_laa < 0:
+        if lambda_gpa < 0 or lambda_coord < 0 or lambda_laa < 0:
             raise ValueError("TIH weights must be non-negative")
-        if lambda_gpa + lambda_laa <= 0:
+        if lambda_gpa + lambda_coord + lambda_laa <= 0:
             raise ValueError("At least one TIH weight must be positive")
         self.lambda_gpa = float(lambda_gpa)
+        self.lambda_coord = float(lambda_coord)
         self.lambda_laa = float(lambda_laa)
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         gpa_value = gpa_rmsd(pred, target)
-        laa_value = laa_rmse(pred, target)
+        coord_value = coordinate_mse_loss(pred, target)
+        laa_value = laa_loss(pred, target)
 
         return (
             self.lambda_gpa * gpa_value
+            + self.lambda_coord * coord_value
             + self.lambda_laa * laa_value
         )
 
-     def components(self, pred: torch.Tensor, target: torch.Tensor) -> dict[str, torch.Tensor]:
-         raw_value = raw_rmsd(pred, target)
-         gpa_value = gpa_rmsd(pred, target)
-         laa_value = laa_loss(pred, target)
-         return {
-             "raw_rmsd": raw_value,
-             "gpa_rmsd": gpa_value,
-             "laa": laa_value,
-             "laa_rmse": torch.sqrt(laa_value + EPS),
-             "tih": self.lambda_gpa * gpa_value + self.lambda_laa * laa_value,
-         }
-    #def components(self, pred: torch.Tensor, target: torch.Tensor) -> dict[str, torch.Tensor]:
-    #    raw_value = raw_rmsd(pred, target)
-    #    gpa_value = gpa_rmsd(pred, target)
+    def components(self, pred: torch.Tensor, target: torch.Tensor) -> dict[str, torch.Tensor]:
+        raw_value = raw_rmsd(pred, target)
+        gpa_value = gpa_rmsd(pred, target)
+        coord_mse_value = coordinate_mse_loss(pred, target)
+        laa_mse_value = laa_loss(pred, target)
+        laa_rmse_value = torch.sqrt(laa_mse_value + EPS)
 
-    #    laa_mse_value = laa_loss(pred, target)
-    #    laa_rmse_value = torch.sqrt(laa_mse_value + EPS)
+        tih_value = (
+            self.lambda_gpa * gpa_value
+            + self.lambda_coord * coord_mse_value
+            + self.lambda_laa * laa_mse_value
+        )
 
-    #    tih_value = (
-    #        self.lambda_gpa * gpa_value
-    #        + self.lambda_laa * laa_rmse_value
-    #    )
-
-    #    return {
-    #        "raw_rmsd": raw_value,
-    #        "gpa_rmsd": gpa_value,
-    #        "laa": laa_mse_value, 
-    #        "laa_rmse": laa_rmse_value,
-    #        "tih": tih_value,
-    #    }
+        return {
+            "raw_rmsd": raw_value,
+            "gpa_rmsd": gpa_value,
+            "coord_mse": coord_mse_value,
+            "laa": laa_mse_value,
+            "laa_rmse": laa_rmse_value,
+            "tih": tih_value,
+        }
